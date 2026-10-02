@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    # Pushes to main are covered by the deploy workflow, which calls this one.
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+# github.workflow is the *calling* workflow's name when this runs via
+# workflow_call, which keeps a deploy's CI run from cancelling a standalone one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests and build
+    runs-on: ubuntu-latest
+    env:
+      # The suite renders the real templates, so it needs a key, but never a real one.
+      DJANGO_SECRET_KEY: ci-only-placeholder-key-not-used-by-any-deployment-xyz7
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: testserver
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Frontend calculation tests
+        run: npm test
+        working-directory: frontend
+
+      # The Django templates resolve the bundle through Vite's manifest, so the
+      # build has to happen before the backend tests render a page.
+      - name: Build frontend bundle
+        run: npm run build
+        working-directory: frontend
+
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
+
+      - name: Backend tests
+        run: python manage.py test budget --verbosity 2
+
+      - name: Deployment checks
+        run: python manage.py check --deploy --fail-level WARNING
+        env:
+          DJANGO_CSRF_TRUSTED_ORIGINS: https://testserver
+
+      - name: Upload built bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-bundle
+          path: staticfiles/
+          retention-days: 7

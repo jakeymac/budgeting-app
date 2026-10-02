@@ -1,0 +1,54 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#244b3d">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in · Teresa’s Budget</title>
+<style>
+:root{font-family:'DM Sans',ui-sans-serif,system-ui,sans-serif;color:#49343f;background:#fcf7f9;font-size:14px}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px}
+main{width:100%;max-width:380px;background:#fff;border:1px solid #ebdfe5;border-radius:16px;padding:34px 32px}
+.mark{width:46px;height:46px;border-radius:14px;background:#a33d70;color:#fff;display:grid;place-items:center;margin-bottom:22px}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:1.9px;color:#96647d}
+h1{font-size:25px;font-weight:600;letter-spacing:-1px;margin:10px 0 6px}
+p{color:#8c697d;font-size:13px;line-height:1.6;margin:0}
+form{margin-top:26px;display:grid;gap:16px}
+label{display:flex;flex-direction:column;gap:7px}
+label span{font-size:11px;font-weight:500;color:#8c697d}
+input{width:100%;background:#fdf9fb;border:1px solid #eadce4;border-radius:7px;padding:12px;color:#513747;font-size:16px;min-height:42px;font-family:inherit}
+button{margin-top:4px;padding:13px;background:#a33d70;color:#fff;border:0;border-radius:7px;font:500 13px inherit;cursor:pointer;min-height:44px}
+button:hover{background:#892d5c}
+:is(input,button):focus-visible{outline:3px solid #d995b5;outline-offset:3px}
+.error{background:#fff0e9;color:#9b4534;padding:11px 12px;border-radius:6px;font-size:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true">
+    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+  </div>
+  <div class="eyebrow">LITTLE BY LITTLE</div>
+  <h1>Teresa’s budget</h1>
+  <p>Sign in to view and edit the budget.</p>
+
+  {% if form.errors %}
+    <p class="error" role="alert" style="margin-top:20px">That username and password don’t match. Please try again.</p>
+  {% endif %}
+
+  <form method="post" action="{% url 'login' %}">
+    {% csrf_token %}
+    <label><span>Username</span>
+      <input type="text" name="username" autocomplete="username" autocapitalize="none" autofocus required>
+    </label>
+    <label><span>Password</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">Sign in</button>
+  </form>
+</main>
+</body>
+</html>

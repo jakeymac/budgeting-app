@@ -1,0 +1,15 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.conda/bin/python",
+  "terminal.integrated.profiles.osx": {
+    "Budget App": {
+      "path": "${workspaceFolder}/.tools/bin/micromamba",
+      "args": ["--no-rc", "-r", "${workspaceFolder}/.mamba", "run", "-p", "${workspaceFolder}/.conda", "/bin/zsh", "-f"]
+    }
+  },
+  "terminal.integrated.defaultProfile.osx": "Budget App",
+  "files.watcherExclude": {
+    "**/.conda/**": true,
+    "**/.mamba/**": true
+  },
+  "files.exclude": {".conda": true, ".mamba": true, ".tools": true}
+}

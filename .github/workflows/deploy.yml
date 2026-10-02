@@ -1,0 +1,80 @@
+name: Deploy to PythonAnywhere
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_static:
+        description: 'Re-upload every static file, not just new ones'
+        type: boolean
+        default: false
+
+# Two deploys landing on the same web app at once would interleave uploads.
+concurrency:
+  group: deploy-pythonanywhere
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Upload and reload
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DJANGO_SECRET_KEY: build-only-placeholder-key-the-real-one-lives-on-the-server
+      DJANGO_DEBUG: '0'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci --prefix frontend
+
+      - name: Build frontend bundle
+        run: npm run build --prefix frontend
+
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
+
+      - name: Deploy
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_API_TOKEN: ${{ secrets.PA_API_TOKEN }}
+          PA_DOMAIN: ${{ secrets.PA_DOMAIN }}
+          PA_HOST: ${{ vars.PA_HOST || 'www.pythonanywhere.com' }}
+          PA_PROJECT_DIR: ${{ vars.PA_PROJECT_DIR }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          DEPLOY_FORCE_STATIC: ${{ inputs.force_static && '1' || '0' }}
+        run: python deploy/pythonanywhere_deploy.py
+
+      - name: Smoke test
+        run: |
+          set -e
+          url="https://${{ secrets.PA_DOMAIN }}/healthz/"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 30 "$url" | grep -q '"ok"'; then
+              echo "Health check passed."
+              exit 0
+            fi
+            echo "Attempt $attempt failed; retrying in 10s."
+            sleep 10
+          done
+          echo "Health check never passed at $url" >&2
+          exit 1
