@@ -1,3 +1,4 @@
+import functools
 import io
 import json
 import secrets
@@ -9,7 +10,7 @@ from django.core.management import call_command
 from django.db.models import Sum, F
 from django.db import transaction
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from .models import Budget, SpendingEvent, MonthlyPlan
@@ -21,6 +22,25 @@ CATEGORIES = ['Groceries', 'Dining', 'Shopping', 'Transport', 'Home', 'Health', 
 @ensure_csrf_cookie
 def home(request):
     return render(request, 'index.html')
+
+
+@ensure_csrf_cookie
+def workspace(request):
+    """Budget administration. Members get sent back to their overview."""
+    if not request.user.is_staff:
+        return redirect('home')
+    return render(request, 'index.html')
+
+
+def admin_only(view):
+    """Guard an API endpoint that changes the budget itself, not just spending."""
+    @functools.wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_staff:
+            return JsonResponse(
+                {'error': 'Only a budget administrator can change this.'}, status=403)
+        return view(request, *args, **kwargs)
+    return wrapper
 
 
 def money(value, positive=False):
@@ -54,7 +74,7 @@ def body(request):
         raise ValueError('Invalid JSON.')
 
 
-def snapshot():
+def snapshot(user=None):
     budget, _ = Budget.objects.get_or_create(pk=1)
     events = SpendingEvent.objects.all()
     spent = events.filter(date__range=(budget.start, budget.end)).aggregate(total=Sum('amount'))['total'] or Decimal(0)
@@ -77,6 +97,7 @@ def snapshot():
             result['budget'].update(start=start, end=end, reserve=saved['data']['reserve'],
                                     amount=format(Decimal(summary['income']) - Decimal(summary['required']), '.2f'))
             result.update(spent=summary['spending'], available=summary['available'])
+    result['is_admin'] = bool(user and user.is_staff)
     return result
 
 
@@ -108,7 +129,7 @@ def deploy_finalize(request):
     output = io.StringIO()
     try:
         call_command('migrate', '--noinput', stdout=output, stderr=output)
-        call_command('bootstrap_admin', stdout=output, stderr=output)
+        call_command('bootstrap_accounts', stdout=output, stderr=output)
     except Exception as error:  # Surface the failure to the workflow log rather than a 500 page.
         return JsonResponse({'ok': False, 'error': str(error), 'output': output.getvalue()}, status=500)
     return JsonResponse({'ok': True, 'output': output.getvalue()})
@@ -117,6 +138,8 @@ def deploy_finalize(request):
 @require_http_methods(['GET', 'PATCH'])
 def budget_api(request):
     if request.method == 'PATCH':
+        if not request.user.is_staff:
+            return JsonResponse({'error': 'Only a budget administrator can change the budget.'}, status=403)
         if MonthlyPlan.objects.filter(kind='actual').exists():
             return JsonResponse({'error': 'Edit the actual budget in the monthly planner.'}, status=409)
         try:
@@ -135,7 +158,7 @@ def budget_api(request):
             budget.save()
         except (ValueError, TypeError) as error:
             return JsonResponse({'error': str(error)}, status=400)
-    return JsonResponse(snapshot())
+    return JsonResponse(snapshot(request.user))
 
 
 @require_http_methods(['POST', 'PATCH', 'DELETE'])
@@ -160,9 +183,10 @@ def events_api(request, event_id=None):
             event.save()
         except (ValueError, TypeError) as error:
             return JsonResponse({'error': str(error)}, status=400)
-    return JsonResponse(snapshot(), status=201 if request.method == 'POST' else 200)
+    return JsonResponse(snapshot(request.user), status=201 if request.method == 'POST' else 200)
 
 
+@admin_only
 @require_http_methods(['PUT'])
 def plan_api(request, kind):
     if kind not in ('actual', 'theoretical'):
@@ -177,6 +201,6 @@ def plan_api(request, kind):
             changed = MonthlyPlan.objects.filter(kind=kind, revision=revision).update(data=cleaned, revision=F('revision')+1)
             if not changed:
                 return JsonResponse({'error': 'This budget changed in another window. Reload saved values before saving again.'}, status=409)
-        return JsonResponse(snapshot())
+        return JsonResponse(snapshot(request.user))
     except (ValueError, TypeError) as error:
         return JsonResponse({'error': str(error)}, status=400)

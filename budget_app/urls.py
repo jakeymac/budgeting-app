@@ -6,7 +6,7 @@ from budget import views
 
 urlpatterns = [
     path('', views.home, name='home'),
-    path('workspace/', views.home, name='workspace'),
+    path('workspace/', views.workspace, name='workspace'),
     path('api/budget/', views.budget_api),
     path('api/plans/<str:kind>/', views.plan_api),
     path('api/events/', views.events_api),

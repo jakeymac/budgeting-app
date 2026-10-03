@@ -29,9 +29,12 @@ os.environ['DJANGO_ALLOWED_HOSTS'] = f'{USERNAME}.pythonanywhere.com'
 os.environ['DJANGO_CSRF_TRUSTED_ORIGINS'] = f'https://{USERNAME}.pythonanywhere.com'
 os.environ['DJANGO_TIME_ZONE'] = 'America/Denver'
 
-# The shared login. Changing the password here and redeploying updates it.
-os.environ['BUDGET_ADMIN_USER'] = 'teresa'
+# Two logins. The admin reaches the budget workspace; the member sees the
+# overview and can log spending. Change a password here and redeploy to apply it.
+os.environ['BUDGET_ADMIN_USER'] = 'CHANGE-ME'
 os.environ['BUDGET_ADMIN_PASSWORD'] = 'CHANGE-ME'
+os.environ['BUDGET_MEMBER_USER'] = 'CHANGE-ME'
+os.environ['BUDGET_MEMBER_PASSWORD'] = 'CHANGE-ME'
 
 # Must match the DEPLOY_TOKEN secret in GitHub. Generate with:
 #   python -c "import secrets; print(secrets.token_urlsafe(32))"

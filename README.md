@@ -49,7 +49,14 @@ Run Django from the project folder for phone access on the same Wi-Fi:
 python manage.py runserver 0.0.0.0:8001
 ```
 
-The app is behind a single shared login. Locally, create one with `python manage.py createsuperuser`; on PythonAnywhere it is provisioned from `BUDGET_ADMIN_USER` / `BUDGET_ADMIN_PASSWORD` (see **Deployment** below). Anyone holding that password can view and edit the budget.
+The app has two logins, and which one you hold decides what you can reach:
+
+| Role | Overview | Log spending | Budget workspace | Django admin |
+| --- | --- | --- | --- | --- |
+| **member** (Teresa) | yes | yes | no | no |
+| **admin** | yes | yes | yes | yes |
+
+The member records purchases; only an admin sets income, bills, insurance, reserve, and the monthly plan. Enforcement is server-side — `/workspace/` redirects a member to the overview, and `PUT /api/plans/<kind>/` and `PATCH /api/budget/` return 403 — with the frontend hiding the controls as a courtesy, not as the boundary. Locally, create accounts with `python manage.py createsuperuser`; on PythonAnywhere they come from `BUDGET_ADMIN_USER` / `BUDGET_MEMBER_USER` and their passwords (see **Deployment**).
 
 ## Actual and theoretical monthly budgets
 
@@ -129,7 +136,7 @@ Pruned: superseded bundles under `staticfiles/frontend/` only. `db.sqlite3` and 
 
 Not uploaded: frontend sources, CI config, this README. Deleting a Python module from the repo does not delete it from the server — remove it by hand in a PythonAnywhere console.
 
-Migrations run through `POST /_deploy/finalize/`, which is a 404 unless the request carries the matching `DEPLOY_TOKEN`. It only ever runs `migrate` and `bootstrap_admin`. Leave `DEPLOY_TOKEN` unset on the server to disable the hook entirely and run migrations by hand instead.
+Migrations run through `POST /_deploy/finalize/`, which is a 404 unless the request carries the matching `DEPLOY_TOKEN`. It only ever runs `migrate` and `bootstrap_accounts`. Leave `DEPLOY_TOKEN` unset on the server to disable the hook entirely and run migrations by hand instead.
 
 ### Checks
 

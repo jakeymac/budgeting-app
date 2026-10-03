@@ -11,7 +11,8 @@ class SignedInTestCase(TestCase):
 
     def setUp(self):
         super().setUp()
-        self.user = get_user_model().objects.create_user(username='teresa', password=PASSWORD)
+        self.user = get_user_model().objects.create_user(
+            username='jmjohnson9699', password=PASSWORD, is_staff=True, is_superuser=True)
         self.client.force_login(self.user)
 
     def fresh_client(self, **kwargs):
@@ -247,19 +248,23 @@ class DeployHookTests(TestCase):
         self.assertTrue(user.is_superuser and user.check_password(PASSWORD))
 
 
-class BootstrapAdminCommandTests(TestCase):
-    def run_command(self, user=None, password=None):
+ENV_KEYS = ('BUDGET_ADMIN_USER', 'BUDGET_ADMIN_PASSWORD',
+            'BUDGET_MEMBER_USER', 'BUDGET_MEMBER_PASSWORD')
+
+
+class BootstrapAccountsCommandTests(TestCase):
+    def run_command(self, **env):
         import os
         from io import StringIO
         from django.core.management import call_command
-        previous = {k: os.environ.get(k) for k in ('BUDGET_ADMIN_USER', 'BUDGET_ADMIN_PASSWORD')}
-        for key, value in (('BUDGET_ADMIN_USER', user), ('BUDGET_ADMIN_PASSWORD', password)):
+        previous = {key: os.environ.get(key) for key in ENV_KEYS}
+        for key in ENV_KEYS:
             os.environ.pop(key, None)
-            if value is not None:
-                os.environ[key] = value
+            if env.get(key) is not None:
+                os.environ[key] = env[key]
         try:
             out = StringIO()
-            call_command('bootstrap_admin', stdout=out)
+            call_command('bootstrap_accounts', stdout=out)
             return out.getvalue()
         finally:
             for key, value in previous.items():
@@ -267,20 +272,100 @@ class BootstrapAdminCommandTests(TestCase):
                 if value is not None:
                     os.environ[key] = value
 
+    def admin_env(self, user='jmjohnson9699', password=PASSWORD):
+        return {'BUDGET_ADMIN_USER': user, 'BUDGET_ADMIN_PASSWORD': password}
+
+    def member_env(self, user='teresa', password=PASSWORD):
+        return {'BUDGET_MEMBER_USER': user, 'BUDGET_MEMBER_PASSWORD': password}
+
     def test_without_credentials_it_leaves_accounts_alone(self):
         self.run_command()
         self.assertEqual(get_user_model().objects.count(), 0)
 
+    def test_it_creates_the_two_roles_with_the_right_privileges(self):
+        self.run_command(**self.admin_env(), **self.member_env())
+        admin = get_user_model().objects.get(username='jmjohnson9699')
+        member = get_user_model().objects.get(username='teresa')
+        self.assertTrue(admin.is_staff and admin.is_superuser)
+        self.assertFalse(member.is_staff or member.is_superuser)
+
+    def test_a_member_inherited_from_the_old_single_account_setup_is_demoted(self):
+        # Teresa was created as a superuser when the app had one shared login.
+        get_user_model().objects.create_user(
+            username='teresa', password=PASSWORD, is_staff=True, is_superuser=True)
+        output = self.run_command(**self.member_env())
+        member = get_user_model().objects.get(username='teresa')
+        self.assertFalse(member.is_staff or member.is_superuser)
+        self.assertIn('demoted to member', output)
+
     def test_it_is_idempotent_and_keeps_the_password_hash_stable(self):
-        self.run_command('teresa', PASSWORD)
+        self.run_command(**self.member_env())
         first = get_user_model().objects.get(username='teresa').password
-        output = self.run_command('teresa', PASSWORD)
+        output = self.run_command(**self.member_env())
         # Re-hashing an unchanged password would rotate the session auth hash
         # and sign Teresa out on every deploy.
         self.assertEqual(get_user_model().objects.get(username='teresa').password, first)
         self.assertIn('already up to date', output)
 
     def test_a_changed_password_is_applied(self):
-        self.run_command('teresa', PASSWORD)
-        self.run_command('teresa', 'a-different-long-password')
-        self.assertTrue(get_user_model().objects.get(username='teresa').check_password('a-different-long-password'))
+        self.run_command(**self.member_env())
+        self.run_command(**self.member_env(password='a-different-long-password'))
+        self.assertTrue(get_user_model().objects.get(username='teresa')
+                        .check_password('a-different-long-password'))
+
+
+class MemberPermissionTests(TestCase):
+    """Teresa records spending; only an administrator changes the budget."""
+
+    def setUp(self):
+        super().setUp()
+        self.member = get_user_model().objects.create_user(username='teresa', password=PASSWORD)
+        self.client.force_login(self.member)
+
+    def test_she_sees_her_overview(self):
+        self.assertEqual(self.client.get('/').status_code, 200)
+
+    def test_the_api_tells_the_frontend_she_is_not_an_administrator(self):
+        self.assertIs(self.client.get('/api/budget/').json()['is_admin'], False)
+
+    def test_the_workspace_sends_her_back_to_the_overview(self):
+        response = self.client.get('/workspace/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/')
+
+    def test_she_can_log_spending(self):
+        response = self.client.post(
+            '/api/events/',
+            json.dumps(dict(description='Coffee', amount='4.50', category='Dining', date='2026-09-20')),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(SpendingEvent.objects.count(), 1)
+
+    def test_she_cannot_edit_the_monthly_plan(self):
+        response = self.client.put(
+            '/api/plans/actual/',
+            json.dumps({'revision': 1, 'data': {}}), content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_she_cannot_patch_the_budget(self):
+        MonthlyPlan.objects.all().delete()
+        Budget.objects.create(pk=1, amount='1000.00', reserve='0.00', start='2026-09-01', end='2026-09-30')
+        data = self.client.get('/api/budget/').json()['budget']
+        data['amount'] = '99999.00'
+        response = self.client.patch('/api/budget/', json.dumps(data), content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(str(Budget.objects.get(pk=1).amount), '1000.00')
+
+
+class AdminPermissionTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.admin = get_user_model().objects.create_user(
+            username='jmjohnson9699', password=PASSWORD, is_staff=True, is_superuser=True)
+        self.client.force_login(self.admin)
+
+    def test_he_reaches_the_workspace(self):
+        self.assertEqual(self.client.get('/workspace/').status_code, 200)
+
+    def test_the_api_marks_him_an_administrator(self):
+        self.assertIs(self.client.get('/api/budget/').json()['is_admin'], True)
