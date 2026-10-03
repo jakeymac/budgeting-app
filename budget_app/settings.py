@@ -183,9 +183,10 @@ if not DEBUG:
 if 'test' in sys.argv:
     SECURE_SSL_REDIRECT = False
 
-# security.W021/W022 want includeSubDomains and preload on top of HSTS. Neither
-# belongs on a shared *.pythonanywhere.com host: we own one name under it, not
-# the domain, so both directives would reach far beyond this app.
-SILENCED_SYSTEM_CHECKS = ['security.W021', 'security.W022']
+# W005 (includeSubDomains) and W021 (preload) want HSTS extended beyond this
+# host. Neither belongs on a shared *.pythonanywhere.com name: we own one
+# subdomain, not the domain, so both would reach far past this app and affect
+# everyone else's sites. SECURE_REFERRER_POLICY (W022) is set properly above.
+SILENCED_SYSTEM_CHECKS = ['security.W005', 'security.W021']
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
