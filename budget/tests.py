@@ -86,7 +86,7 @@ class BudgetAPITests(SignedInTestCase):
 
     def test_csrf_protection_and_both_page_routes(self):
         client = self.fresh_client(enforce_csrf_checks=True)
-        for route in ['/', '/workspace/']:
+        for route in ['/']:
             response = client.get(route)
             self.assertEqual(response.status_code, 200)
             # The bundle name carries a content hash, resolved via Vite's manifest.
@@ -206,7 +206,7 @@ class AccessControlTests(TestCase):
     """The deployed app is on the public internet; nothing but the login page is open."""
 
     def test_anonymous_visitors_are_sent_to_the_login_page(self):
-        for route in ['/', '/workspace/', '/api/budget/']:
+        for route in ['/', '/api/budget/']:
             response = self.client.get(route)
             self.assertEqual(response.status_code, 302, route)
             self.assertTrue(response['Location'].startswith('/login/'), route)
@@ -328,7 +328,7 @@ class MemberPermissionTests(TestCase):
     def test_the_api_tells_the_frontend_she_is_not_an_administrator(self):
         self.assertIs(self.client.get('/api/budget/').json()['is_admin'], False)
 
-    def test_the_workspace_sends_her_back_to_the_overview(self):
+    def test_the_old_workspace_address_sends_her_to_the_single_page(self):
         response = self.client.get('/workspace/')
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response['Location'], '/')
@@ -364,8 +364,14 @@ class AdminPermissionTests(TestCase):
             username='jmjohnson9699', password=PASSWORD, is_staff=True, is_superuser=True)
         self.client.force_login(self.admin)
 
-    def test_he_reaches_the_workspace(self):
-        self.assertEqual(self.client.get('/workspace/').status_code, 200)
+    def test_the_old_workspace_address_redirects_for_him_too(self):
+        # One page, two states: /workspace/ survives only for old bookmarks.
+        response = self.client.get('/workspace/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/')
+
+    def test_he_reaches_the_single_page(self):
+        self.assertEqual(self.client.get('/').status_code, 200)
 
     def test_the_api_marks_him_an_administrator(self):
         self.assertIs(self.client.get('/api/budget/').json()['is_admin'], True)

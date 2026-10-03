@@ -24,12 +24,13 @@ def home(request):
     return render(request, 'index.html')
 
 
-@ensure_csrf_cookie
 def workspace(request):
-    """Budget administration. Members get sent back to their overview."""
-    if not request.user.is_staff:
-        return redirect('home')
-    return render(request, 'index.html')
+    """Kept only so older bookmarks still land somewhere.
+
+    The app is a single page with two states now: the budget workspace is a
+    view inside it, not a separate address. Nothing links here any more.
+    """
+    return redirect('home')
 
 
 def admin_only(view):
