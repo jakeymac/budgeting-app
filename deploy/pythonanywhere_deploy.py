@@ -51,6 +51,11 @@ STATIC_DIR = 'staticfiles/frontend'
 # Never delete these during a prune, whatever the manifest says.
 PROTECTED = {'.env', 'db.sqlite3'}
 
+# Static files are normally content-hashed, so an existing remote path already
+# holds the right bytes and can be skipped. These are the exceptions: their
+# names never change but their contents do, so they must be re-sent every time.
+UNHASHED_STATIC = {'manifest.json'}
+
 UPLOAD_WORKERS = 2
 MAX_ATTEMPTS = 5
 
@@ -199,7 +204,10 @@ def main():
             prefix = f'{project_dir}/'
             existing = {path[len(prefix):] for path in listed if path.startswith(prefix)}
 
-    to_upload = sources + [name for name in statics if force_static or name not in existing]
+    def must_upload(name):
+        return force_static or name not in existing or Path(name).name in UNHASHED_STATIC
+
+    to_upload = sources + [name for name in statics if must_upload(name)]
     skipped = len(statics) - (len(to_upload) - len(sources))
     if skipped:
         log(f'  {skipped} static files already present, skipping')
@@ -223,8 +231,11 @@ def main():
         raise DeployError('Upload failed:\n  ' + '\n  '.join(failures))
     log(f'Uploaded {len(to_upload)} files.')
 
-    # Drop superseded bundles. Limited to the collected static tree, which is
-    # the only place stale files pile up, and never touches data or secrets.
+    api.reload(domain)
+    log(f'Reloaded {domain}.')
+
+    # Prune only after the reload. Workers still running the previous manifest
+    # would otherwise serve URLs for bundles that have already been deleted.
     listed = api.tree(f'{project_dir}/{STATIC_DIR}')
     if listed is None:
         log('Skipping prune: remote static tree could not be listed.')
@@ -240,9 +251,6 @@ def main():
         for path in stale:
             api.delete(path)
         log(f'Pruned {len(stale)} stale static files.')
-
-    api.reload(domain)
-    log(f'Reloaded {domain}.')
 
     deploy_token = os.environ.get('DEPLOY_TOKEN', '').strip()
     if not deploy_token:

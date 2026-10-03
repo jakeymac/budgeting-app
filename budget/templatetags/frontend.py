@@ -16,6 +16,7 @@ ENTRY = 'src/main.jsx'
 MANIFEST_NAME = 'frontend/manifest.json'
 
 _cache = None
+_cache_stamp = None
 _lock = threading.Lock()
 
 
@@ -28,8 +29,8 @@ def _manifest_path():
     return Path(found) if found else None
 
 
-def _load():
-    path = _manifest_path()
+def _load(path=None):
+    path = path or _manifest_path()
     if path is None:
         raise ImproperlyConfigured(
             'The React bundle has not been built. Run:\n'
@@ -47,11 +48,24 @@ def _load():
 
 @register.simple_tag
 def frontend_assets():
-    """Return {'js': url, 'css': [urls]} for the built React entry point."""
-    global _cache
+    """Return {'js': url, 'css': [urls]} for the built React entry point.
+
+    Cached, but keyed on the manifest's mtime and size: a deploy that replaces
+    the file is picked up without waiting for the worker to be restarted. A
+    worker left holding a stale manifest would serve URLs for bundles the same
+    deploy has already pruned, which is a blank page.
+    """
+    global _cache, _cache_stamp
     if settings.DEBUG:
         return _load()
+    path = _manifest_path()
+    try:
+        info = path.stat()
+        stamp = (info.st_mtime_ns, info.st_size)
+    except (OSError, AttributeError):
+        # Missing manifest: fall through so _load() raises with instructions.
+        stamp = None
     with _lock:
-        if _cache is None:
-            _cache = _load()
-    return _cache
+        if _cache is None or stamp is None or stamp != _cache_stamp:
+            _cache, _cache_stamp = _load(path), stamp
+        return _cache
