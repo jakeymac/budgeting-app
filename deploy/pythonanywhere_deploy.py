@@ -42,12 +42,16 @@ ROOT = Path(__file__).resolve().parent.parent
 # CI config, docs) stays on GitHub.
 SOURCE_PREFIXES = ('budget/', 'budget_app/', 'templates/')
 SOURCE_FILES = ('manage.py', 'requirements.txt')
-STATIC_DIR = 'staticfiles'
+
+# Only our own bundle ships. Django's admin assets (127 files) are served by
+# PythonAnywhere straight out of the virtualenv via a second static mapping;
+# uploading them would blow through the API rate limit for no benefit.
+STATIC_DIR = 'staticfiles/frontend'
 
 # Never delete these during a prune, whatever the manifest says.
 PROTECTED = {'.env', 'db.sqlite3'}
 
-UPLOAD_WORKERS = 4
+UPLOAD_WORKERS = 2
 MAX_ATTEMPTS = 5
 
 
@@ -85,7 +89,11 @@ class PythonAnywhere:
                 payload = error.read().decode('utf-8', 'replace')[:400]
                 # 429 is the API rate limiter; 5xx is usually transient.
                 if error.code in (429, 500, 502, 503, 504) and attempt < MAX_ATTEMPTS:
-                    delay = min(2 ** attempt, 30)
+                    retry_after = error.headers.get('Retry-After') if error.headers else None
+                    try:
+                        delay = max(1, min(int(retry_after), 60)) if retry_after else min(2 ** attempt, 30)
+                    except (TypeError, ValueError):
+                        delay = min(2 ** attempt, 30)
                     log(f'  {method} {path} -> {error.code}, retrying in {delay}s')
                     time.sleep(delay)
                     continue
@@ -154,10 +162,13 @@ def collected_static():
             f'{STATIC_DIR}/ is missing. Run `python manage.py collectstatic --noinput` '
             'after building the frontend.'
         )
-    return sorted(
+    collected = sorted(
         str(path.relative_to(ROOT)) for path in base.rglob('*')
         if path.is_file() and '__pycache__' not in path.parts
     )
+    if not collected:
+        raise DeployError(f'{STATIC_DIR}/ is empty. Build the frontend before collecting static files.')
+    return collected
 
 
 def main():

@@ -87,11 +87,18 @@ A failing CI run blocks the deploy. Use **Run workflow** on the deploy action wi
    ```
    Put `/home/YOURNAME/.virtualenvs/budget-app` in the web app's *Virtualenv* field.
 3. **WSGI file** — replace the contents of the web app's WSGI configuration file with [deploy/wsgi_pythonanywhere.py](deploy/wsgi_pythonanywhere.py), filling in every `CHANGE-ME`. This is where the deployed app's secrets live.
-4. **Static files** — add one mapping on the Web tab:
+4. **Static files** — add two mappings on the Web tab:
 
    | URL | Directory |
    | --- | --- |
    | `/static/` | `/home/YOURNAME/budget-app/staticfiles/` |
+   | `/static/admin/` | `/home/YOURNAME/.virtualenvs/budget-app/lib/python3.12/site-packages/django/contrib/admin/static/admin/` |
+
+   The second one serves Django's admin assets straight from the virtualenv. The
+   deploy therefore ships only our own bundle: uploading the admin's 127 files
+   on every deploy would exceed the PythonAnywhere API's rate limit for no gain.
+   PythonAnywhere matches the most specific URL prefix, so `/static/admin/` wins
+   over `/static/`.
 5. **API token** — Account → *API token* → create one.
 6. Click **Reload**. Visiting the site now gives an error until the first deploy uploads the code — that is expected.
 
@@ -116,9 +123,9 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ### What a deploy touches
 
-Uploaded: `manage.py`, `requirements.txt`, `budget/`, `budget_app/`, `templates/`, and the collected `staticfiles/`. Static files whose paths already exist on the server are skipped, since their names are content-hashed.
+Uploaded: `manage.py`, `requirements.txt`, `budget/`, `budget_app/`, `templates/`, and `staticfiles/frontend/` — 26 files. Bundle files whose paths already exist on the server are skipped, since their names are content-hashed. Django's admin assets are not uploaded at all; see the static mapping in step 4.
 
-Pruned: stale files under `staticfiles/` only. `db.sqlite3` and `.env` are never deleted, and the recommended `BUDGET_DB_PATH` puts the database outside the deployed tree entirely.
+Pruned: superseded bundles under `staticfiles/frontend/` only. `db.sqlite3` and `.env` are never deleted, and the recommended `BUDGET_DB_PATH` puts the database outside the deployed tree entirely.
 
 Not uploaded: frontend sources, CI config, this README. Deleting a Python module from the repo does not delete it from the server — remove it by hand in a PythonAnywhere console.
 
